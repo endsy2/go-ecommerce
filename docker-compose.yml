@@ -1,0 +1,51 @@
+# Local development infrastructure only.
+#
+# The credentials below are throwaway values for a database that listens on
+# localhost and holds no real data. They are duplicated in backend/.env.example
+# so a fresh checkout works with `cp .env.example .env`. Never point this file at
+# anything real, and never put a production secret in it.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ecommerce-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ecommerce
+      POSTGRES_PASSWORD: ecommerce_dev_password
+      POSTGRES_DB: ecommerce
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # `docker compose up -d` returns as soon as the container starts, but
+      # Postgres needs a few more seconds before it accepts connections. This
+      # is what makes `docker compose ps` report healthy only when it is really
+      # ready, so the API's startup ping does not race it.
+      test: ["CMD-SHELL", "pg_isready -U ecommerce -d ecommerce"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    container_name: ecommerce-redis
+    restart: unless-stopped
+    # Persist to disk so a restart does not silently empty the cache during dev.
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+volumes:
+  postgres_data:
+  redis_data:

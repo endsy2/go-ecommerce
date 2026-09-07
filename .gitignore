@@ -1,0 +1,42 @@
+# Secrets — never commit. Only .env.example belongs in git.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# Claude Code — settings.json, commands/ and hooks/ are shared and committed.
+# settings.local.json holds per-developer permission overrides.
+.claude/settings.local.json
+
+# Go
+/backend/bin/
+/backend/api
+/backend/migrate
+*.exe
+*.test
+*.out
+
+# Node / Next.js
+node_modules/
+.next/
+.turbo/
+/frontend/out/
+/frontend/.vercel/
+/frontend/next-env.d.ts
+*.tsbuildinfo
+coverage/
+npm-debug.log*
+yarn-error.log*
+
+# Editors / OS
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*~
