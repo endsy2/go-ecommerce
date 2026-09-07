@@ -61,9 +61,10 @@ func New(cfg *config.Config, h Handlers, tokens middleware.TokenValidator) *gin.
 	v1 := api(engine)
 
 	// --- Public -----------------------------------------------------------
-	// No auth middleware. Login is here because requiring a token in order to
-	// get a token would be circular; the catalogue is here because the
-	// storefront has to render before anyone has signed in.
+	// No auth middleware. Register and login are here because requiring a token
+	// in order to get a token would be circular; the catalogue is here because
+	// the storefront has to render before anyone has signed in.
+	v1.POST("/auth/register", h.Auth.Register)
 	v1.POST("/auth/login", h.Auth.Login)
 	// v1.GET("/products", h.Product.List)
 	// v1.GET("/products/:slug", h.Product.GetBySlug)

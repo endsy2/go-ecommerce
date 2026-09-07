@@ -208,3 +208,71 @@ func TestUserRepositoryFindByID(t *testing.T) {
 		}
 	})
 }
+
+// TestUserRepositoryCreate covers the insert path, and in particular the one
+// failure that only a real database can produce.
+//
+// The duplicate case is the reason this test is worth its runtime: uniqueness is
+// enforced by the users_email_lower_key expression index, which no struct tag
+// describes, and the 23505 it raises only becomes gorm.ErrDuplicatedKey because
+// TranslateError is set on the gorm.Config in internal/database. Drop either
+// piece and Create starts returning a wrapped driver error, which handler.
+// HandleError answers with a 500 instead of a 409. Nothing else in the suite
+// would notice.
+func TestUserRepositoryCreate(t *testing.T) {
+	db := newTestDB(t)
+	repo := NewUserRepository(db)
+	ctx := context.Background()
+
+	seedUser(t, db, "taken@example.com")
+
+	tests := []struct {
+		name         string
+		email        string
+		wantConflict bool
+	}{
+		{name: "new email is inserted", email: "fresh@example.com"},
+		{name: "same email is a conflict", email: "taken@example.com", wantConflict: true},
+		{
+			// The index is on lower(email), so casing must not buy a second
+			// account for the same address.
+			name:         "different casing is the same address",
+			email:        "Taken@Example.COM",
+			wantConflict: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			u := &model.User{
+				Email:        tt.email,
+				PasswordHash: "not-a-real-hash",
+				Name:         "Test User",
+				Role:         model.RoleCustomer,
+			}
+
+			err := repo.Create(ctx, u)
+
+			if tt.wantConflict {
+				// domain.ErrConflict, never a raw driver error: the service
+				// layer must not have to read Postgres error codes.
+				if !errors.Is(err, domain.ErrConflict) {
+					t.Fatalf("got error %v, want domain.ErrConflict", err)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("got unexpected error: %v", err)
+			}
+			// Create is documented to fill the argument from the database
+			// defaults, which is what lets the service sign a token for the id.
+			if u.ID == uuid.Nil {
+				t.Error("got a zero id, want the one gen_random_uuid() produced")
+			}
+			if u.CreatedAt.IsZero() {
+				t.Error("got a zero created_at, want the now() default")
+			}
+		})
+	}
+}

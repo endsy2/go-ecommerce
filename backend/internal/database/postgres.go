@@ -5,11 +5,11 @@ package database
 import (
 	"context"
 	"fmt"
-	"log/slog"
-	"time"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
+	"log/slog"
+	"time"
 
 	"ecommerce/backend/internal/config"
 )
@@ -34,6 +34,15 @@ func NewPostgres(ctx context.Context, cfg config.PostgresConfig, devMode bool) (
 		// Cache the prepared statement for each distinct query instead of
 		// re-planning it on every call.
 		PrepareStmt: true,
+		// Map driver-specific codes onto GORM's own error values, so a unique
+		// violation arrives as gorm.ErrDuplicatedKey rather than a
+		// *pgconn.PgError carrying the string "23505".
+		//
+		// Without this, a repository wanting to tell "duplicate email" apart
+		// from a genuine database failure would have to import a pgx type and
+		// compare error codes — which would make pgx a direct dependency of the
+		// repository layer just to read one constant.
+		TranslateError: true,
 	})
 	if err != nil {
 		// Deliberately does not wrap err with the DSN: it contains the password.
