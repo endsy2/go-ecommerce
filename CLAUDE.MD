@@ -7,8 +7,9 @@ code.
 
 ## Commands
 
-- Infra (postgres + redis): `docker compose up -d`
-- API: `cd backend && go run ./cmd/api`
+- Whole stack (postgres + redis + API): `docker compose up -d`
+- API on the host instead (faster loop while coding): `cd backend && go run ./cmd/api`
+- Rebuild the API image after a code change: `docker compose up -d --build backend`
 - Migrate: `cd backend && go run ./cmd/migrate up` (also `down N`, `status`)
 - New migration: append an entry to `all()` in
   `internal/migration/migrations.go`. There is no generator.
