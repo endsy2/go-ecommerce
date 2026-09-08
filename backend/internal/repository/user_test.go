@@ -68,6 +68,11 @@ func newTestDB(t *testing.T) *gorm.DB {
 		// Silent: a failing test should show its own assertion, not 40 lines of
 		// SQL above it.
 		Logger: gormlogger.Default.LogMode(gormlogger.Silent),
+		// Matches database.NewPostgres. Without it a unique violation arrives
+		// here as a raw driver error while production sees gorm.ErrDuplicatedKey,
+		// so the repository's conflict mapping would go untested — the test
+		// database has to behave like the real one.
+		TranslateError: true,
 	})
 	if err != nil {
 		t.Fatalf("opening gorm connection: %v", err)

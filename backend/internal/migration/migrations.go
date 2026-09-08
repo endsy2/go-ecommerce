@@ -166,6 +166,67 @@ func all() []*gormigrate.Migration {
 				return tx.Migrator().DropTable(&model.OrderItem{}, &model.Order{})
 			},
 		},
+		{
+			ID: "000006_add_products_slug",
+			Migrate: func(tx *gorm.DB) error {
+				// Every statement here is idempotent, and that is not defensive
+				// habit — it is required by the way this package works.
+				//
+				// 000003 builds products with tx.AutoMigrate(&model.Product{}),
+				// which reads the struct as it is TODAY. Adding Slug to the model
+				// therefore changed what that earlier entry does: on a fresh
+				// database 000003 now creates the column and a plain unique index
+				// from the tag, while a database already at 000005 has neither. An
+				// AutoMigrate-driven migration list has no frozen snapshots, so a
+				// later entry has to converge both cases onto the same schema.
+				return execAll(tx,
+					`ALTER TABLE products ADD COLUMN IF NOT EXISTS slug text`,
+
+					// The same transformation util.Slugify does, in SQL. It has to
+					// be duplicated here because a migration cannot call into
+					// application code that may change under it.
+					`UPDATE products
+					   SET slug = trim(both '-' from regexp_replace(lower(name), '[^a-z0-9]+', '-', 'g'))
+					   WHERE slug IS NULL OR slug = ''`,
+
+					// A name of only punctuation, or one in a non-Latin script,
+					// slugifies to the empty string. Fall back to the id, which is
+					// ugly but unique and keeps the row addressable.
+					`UPDATE products SET slug = id::text WHERE slug IS NULL OR slug = ''`,
+
+					// Two products legitimately share a name. Suffixing every member
+					// of a colliding group with its own id prefix makes them distinct
+					// before the unique index is built.
+					`UPDATE products p
+					   SET slug = p.slug || '-' || left(p.id::text, 8)
+					   WHERE EXISTS (
+					     SELECT 1 FROM products q WHERE q.slug = p.slug AND q.id <> p.id
+					   )`,
+
+					`ALTER TABLE products ALTER COLUMN slug SET NOT NULL`,
+
+					// Drop whatever the struct tag may have produced on a fresh
+					// database, then create the index this schema actually wants:
+					// PARTIAL, matching products_active_idx. A soft-deleted product
+					// keeps its slug row but stops reserving the name, so the
+					// catalogue can list a replacement under it. Both indexes carry
+					// the same name, so a later AutoMigrate sees it already exists
+					// and leaves this version alone.
+					`DROP INDEX IF EXISTS idx_products_slug`,
+					`CREATE UNIQUE INDEX idx_products_slug ON products (slug)
+					   WHERE deleted_at IS NULL`,
+				)
+			},
+			Rollback: func(tx *gorm.DB) error {
+				// Drops exactly what Migrate added — the index and the column.
+				// Dropping the table here would destroy the catalogue over a
+				// reversible column change.
+				return execAll(tx,
+					`DROP INDEX IF EXISTS idx_products_slug`,
+					`ALTER TABLE products DROP COLUMN IF EXISTS slug`,
+				)
+			},
+		},
 	}
 }
 

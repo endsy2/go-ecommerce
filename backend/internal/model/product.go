@@ -23,7 +23,21 @@ type Product struct {
 	// rather than silently take the catalogue with it.
 	Category *Category `gorm:"foreignKey:CategoryID;constraint:OnDelete:RESTRICT"`
 
-	Name        string `gorm:"type:text;not null"`
+	Name string `gorm:"type:text;not null"`
+
+	// Slug is the URL-safe identifier the storefront reads by
+	// (/api/v1/products/blue-ceramic-mug). It is derived from Name when the
+	// product is created and then FROZEN: renaming a product must not change
+	// its slug, or every existing link and bookmark to it breaks. That is also
+	// why admin writes address a product by :id instead.
+	//
+	// The tag produces a plain unique index. The real one, created by migration
+	// 000006, is PARTIAL — unique only WHERE deleted_at IS NULL — so a
+	// withdrawn product does not hold its slug hostage forever. Both carry the
+	// name idx_products_slug, so AutoMigrate sees it already exists and leaves
+	// the migration's version alone.
+	Slug string `gorm:"type:text;not null;uniqueIndex:idx_products_slug"`
+
 	Description string `gorm:"type:text;not null;default:''"`
 
 	// Money is int64 cents everywhere, per CLAUDE.md: 1999 is £19.99. Never
