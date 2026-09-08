@@ -70,7 +70,12 @@ func (s *CategoryService) Create(ctx context.Context, name, slug string) (*model
 
 // Update renames a category. The slug does not move — see UpdateCategoryRequest.
 func (s *CategoryService) Update(ctx context.Context, id uuid.UUID, name string) (*model.Category, error) {
-	if err := s.categories.Update(ctx, &model.Category{Base: model.Base{ID: id}, Name: strings.TrimSpace(name)}); err != nil {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, domain.Validationf("name must contain at least one letter or digit")
+	}
+
+	if err := s.categories.Update(ctx, &model.Category{Base: model.Base{ID: id}, Name: name}); err != nil {
 		return nil, err
 	}
 
