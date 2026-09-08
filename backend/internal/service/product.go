@@ -105,10 +105,15 @@ func (s *ProductService) Update(ctx context.Context, id uuid.UUID, in ProductInp
 		return nil, err
 	}
 
+	name := strings.TrimSpace(in.Name)
+	if name == "" {
+		return nil, domain.Validationf("name must contain at least one letter or digit")
+	}
+
 	updated := &model.Product{
 		Base:        model.Base{ID: id},
 		CategoryID:  in.CategoryID,
-		Name:        strings.TrimSpace(in.Name),
+		Name:        name,
 		Description: strings.TrimSpace(in.Description),
 		PriceCents:  in.PriceCents,
 		Stock:       in.Stock,
