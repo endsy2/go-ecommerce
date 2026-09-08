@@ -19,6 +19,7 @@ const AuthCookieName = "auth_token"
 // authService is the slice of AuthService this handler uses — declared by the
 // consumer, as in the service layer.
 type authService interface {
+	Register(ctx context.Context, email, name, password string) (*model.User, string, error)
 	Login(ctx context.Context, email, password string) (string, error)
 	CurrentUser(ctx context.Context, id uuid.UUID) (*model.User, error)
 }
@@ -63,6 +64,53 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
+	h.setAuthCookie(c, token)
+
+	OK(c, dto.LoginResponse{Token: token})
+}
+
+// Register answers POST /api/v1/auth/register.
+//
+// It creates the account and signs it in with the same cookie Login sets, so a
+// new user is authenticated the moment they sign up. 201 rather than 200,
+// because this request created a resource.
+//
+// An address that already exists produces a 409 rather than a generic failure.
+// Unlike Login, which hides whether an email is registered, signup cannot: the
+// user has to be told why their chosen address was refused. Hiding it here
+// would require an email-verification flow that this project does not have.
+func (h *AuthHandler) Register(c *gin.Context) {
+	var req dto.RegisterRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		// Field-level 422 from the binding tags — including the password policy,
+		// which lives on the dto and not in this handler.
+		HandleBindingError(c, err)
+		return
+	}
+
+	user, token, err := h.auth.Register(c.Request.Context(), req.Email, req.Name, req.Password)
+	if err != nil {
+		// domain.ErrConflict from a duplicate email becomes a 409 here without
+		// this handler naming that case: HandleError derives it from the error.
+		HandleError(c, err)
+		return
+	}
+
+	h.setAuthCookie(c, token)
+
+	Created(c, dto.RegisterResponse{
+		Token: token,
+		User:  newUserResponse(user),
+	})
+}
+
+// setAuthCookie writes the session cookie.
+//
+// Shared by Login and Register rather than written out at each call site: the
+// flags below are the security properties of the session, and two copies of
+// them are two things that can drift apart. A Register that forgot httpOnly
+// would hand every XSS bug a token, and nothing would fail visibly.
+func (h *AuthHandler) setAuthCookie(c *gin.Context, token string) {
 	// SameSite=Lax stops the browser attaching this cookie to cross-site POSTs,
 	// which is the cheap half of CSRF protection. Strict would be safer still,
 	// but it also drops the cookie when a user arrives by following a link from
@@ -77,8 +125,6 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		h.secureCookie,
 		true, // httpOnly: unreadable from JavaScript, so XSS cannot steal it
 	)
-
-	OK(c, dto.LoginResponse{Token: token})
 }
 
 // Me answers GET /api/v1/auth/me, returning the caller's own account.

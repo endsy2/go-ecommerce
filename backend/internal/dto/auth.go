@@ -49,3 +49,35 @@ type UserResponse struct {
 	Role      string    `json:"role"`
 	CreatedAt time.Time `json:"created_at"`
 }
+
+// RegisterRequest is the POST /api/v1/auth/register body.
+//
+// There is deliberately no Role field. Role is not something a client may ask
+// for: if it were bindable here, anyone could POST `"role":"admin"` and grant
+// themselves the admin group. Leaving it off the struct makes that impossible
+// to express rather than something a handler has to remember to strip.
+//
+// Unlike LoginRequest, Password carries a policy — this is the endpoint that
+// sets the password, so it is the only place a policy can be enforced.
+//
+// The max=72 is not a round number. bcrypt hashes the first 72 bytes of its
+// input and silently discards the rest, so without a cap a 200-character
+// passphrase would be truncated and the user would believe they had far more
+// protection than they do. Rejecting at 72 makes the limit visible instead.
+type RegisterRequest struct {
+	Email    string `json:"email" binding:"required,email"`
+	Name     string `json:"name" binding:"required,min=1,max=100"`
+	Password string `json:"password" binding:"required,min=8,max=72"`
+}
+
+// RegisterResponse is returned with 201 on a successful registration.
+//
+// Registering signs the new user in: the token is issued here and also set as
+// the auth cookie, so the client does not have to follow a signup with an
+// immediate login. The user is included alongside it to save a further round
+// trip to /auth/me, and reuses UserResponse so there is exactly one wire shape
+// for a user.
+type RegisterResponse struct {
+	Token string       `json:"token"`
+	User  UserResponse `json:"user"`
+}

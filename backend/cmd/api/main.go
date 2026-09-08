@@ -96,6 +96,8 @@ func run() error {
 	// --- 3. Repositories --------------------------------------------------
 	// Repositories are the only place GORM is used. They take *gorm.DB.
 	userRepo := repository.NewUserRepository(db)
+	categoryRepo := repository.NewCategoryRepository(db)
+	productRepo := repository.NewProductRepository(db)
 
 	// --- 4. Services ------------------------------------------------------
 	// Services hold business logic, own transactions, and return domain errors.
@@ -109,6 +111,11 @@ func run() error {
 	// The compiler checks the fit here, at the wiring point.
 	jwt := util.NewJWT(cfg.JWT.Secret, cfg.JWT.Expiry)
 	authSvc := service.NewAuthService(userRepo, jwt)
+	categorySvc := service.NewCategoryService(categoryRepo)
+	// The product service takes the category repository too, to check that a
+	// create or update names a category that exists. It asks for a one-method
+	// interface, so this same concrete repository satisfies both call sites.
+	productSvc := service.NewProductService(productRepo, categoryRepo)
 
 	// --- 5. Handlers ------------------------------------------------------
 	// Handlers bind and validate input, call a service, and write a response.
@@ -117,7 +124,9 @@ func run() error {
 		// The auth cookie lives exactly as long as the token inside it, and is
 		// marked Secure everywhere except local development, which runs on
 		// plain http and would otherwise never receive it.
-		Auth: handler.NewAuthHandler(authSvc, cfg.JWT.Expiry, !cfg.IsDevelopment()),
+		Auth:     handler.NewAuthHandler(authSvc, cfg.JWT.Expiry, !cfg.IsDevelopment()),
+		Product:  handler.NewProductHandler(productSvc),
+		Category: handler.NewCategoryHandler(categorySvc),
 	}
 
 	// --- 6. HTTP server ---------------------------------------------------

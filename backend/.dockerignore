@@ -1,0 +1,31 @@
+# The build context is backend/, so every path here is relative to that.
+#
+# Anything not excluded is uploaded to the daemon on every build and can end up
+# in an image layer — and a layer is readable by anyone who can pull the image,
+# including after a later layer deletes the file.
+
+# Secrets. The container is configured by compose `environment:` and `env_file:`
+# entries, which set variables at run time and never touch a layer. A .env baked
+# into the image would put JWT_SECRET and the database password on disk in it.
+#
+# This has to be stated here and not left to .gitignore: `COPY . .` sees the
+# working directory, not the index, so an untracked .env would still be copied.
+.env
+.env.*
+!.env.example
+
+# Host build output. These are compiled for the host OS and would be copied in
+# only to be overwritten by the real build.
+bin/
+api
+api.exe
+migrate
+migrate.exe
+tmp/
+
+# Not needed to compile. The daemon reads Dockerfile and .dockerignore directly
+# rather than from the context; *.md matches nothing under backend/ today and is
+# listed so that adding a README later cannot invalidate the build cache.
+Dockerfile
+.dockerignore
+*.md

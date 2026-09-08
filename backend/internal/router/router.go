@@ -11,14 +11,17 @@ import (
 	"ecommerce/backend/internal/config"
 	"ecommerce/backend/internal/handler"
 	"ecommerce/backend/internal/middleware"
+	"ecommerce/backend/internal/model"
 )
 
 // Handlers is the set of handler structs the router needs. Adding a feature
 // means adding a field here and a route below — the compiler then forces main.go
 // to construct it, so a half-wired feature cannot reach runtime.
 type Handlers struct {
-	Health *handler.HealthHandler
-	Auth   *handler.AuthHandler
+	Health   *handler.HealthHandler
+	Auth     *handler.AuthHandler
+	Product  *handler.ProductHandler
+	Category *handler.CategoryHandler
 }
 
 // New builds the engine: middleware chain first, then routes.
@@ -61,14 +64,15 @@ func New(cfg *config.Config, h Handlers, tokens middleware.TokenValidator) *gin.
 	v1 := api(engine)
 
 	// --- Public -----------------------------------------------------------
-	// No auth middleware. Login is here because requiring a token in order to
-	// get a token would be circular; the catalogue is here because the
-	// storefront has to render before anyone has signed in.
+	// No auth middleware. Register and login are here because requiring a token
+	// in order to get a token would be circular; the catalogue is here because
+	// the storefront has to render before anyone has signed in.
+	v1.POST("/auth/register", h.Auth.Register)
 	v1.POST("/auth/login", h.Auth.Login)
-	// v1.GET("/products", h.Product.List)
-	// v1.GET("/products/:slug", h.Product.GetBySlug)
-	// v1.GET("/categories", h.Category.List)
-	// v1.GET("/categories/:slug", h.Category.GetBySlug)
+	v1.GET("/products", h.Product.List)
+	v1.GET("/products/:slug", h.Product.GetBySlug)
+	v1.GET("/categories", h.Category.List)
+	v1.GET("/categories/:slug", h.Category.GetBySlug)
 
 	// --- Authenticated ----------------------------------------------------
 	// RequireAuth is attached to the GROUP, not repeated on each route. A route
@@ -86,8 +90,6 @@ func New(cfg *config.Config, h Handlers, tokens middleware.TokenValidator) *gin.
 	// would allow an admin route that never authenticates, where RequireRole
 	// finds no role on the context and has to reject blind.
 	//
-	// Uncomment together with the first admin handler.
-	//
 	// Writes address a product by :id while the public reads use :slug. A slug
 	// is derived from the name, so a PUT that renames a product changes the
 	// slug and invalidates the very URL it was sent to. The id never moves.
@@ -98,13 +100,13 @@ func New(cfg *config.Config, h Handlers, tokens middleware.TokenValidator) *gin.
 	// wildcard names at the same position panic at startup — so adding a
 	// second GET on /products/:id would refuse to boot. Verified, not assumed.
 	//
-	// admin := protected.Group("", middleware.RequireRole(model.RoleAdmin))
-	// admin.POST("/products", h.Product.Create)
-	// admin.PUT("/products/:id", h.Product.Update)
-	// admin.DELETE("/products/:id", h.Product.Delete)
-	// admin.POST("/categories", h.Category.Create)
-	// admin.PUT("/categories/:id", h.Category.Update)
-	// admin.DELETE("/categories/:id", h.Category.Delete)
+	admin := protected.Group("", middleware.RequireRole(model.RoleAdmin))
+	admin.POST("/products", h.Product.Create)
+	admin.PUT("/products/:id", h.Product.Update)
+	admin.DELETE("/products/:id", h.Product.Delete)
+	admin.POST("/categories", h.Category.Create)
+	admin.PUT("/categories/:id", h.Category.Update)
+	admin.DELETE("/categories/:id", h.Category.Delete)
 
 	engine.NoRoute(func(c *gin.Context) {
 		handler.RespondError(c, http.StatusNotFound, "not_found", "no such endpoint")

@@ -57,6 +57,14 @@ func Respond(c *gin.Context, status int, data any) {
 	c.JSON(status, successBody{Data: data})
 }
 
+// NoContent writes 204 with no body, for a successful delete.
+//
+// There is deliberately no envelope here: 204 means "done, and there is nothing
+// to send", and a body would contradict the status line.
+func NoContent(c *gin.Context) {
+	c.Status(204)
+}
+
 // RespondList writes 200 with a data envelope plus pagination meta.
 func RespondList(c *gin.Context, data any, meta Meta) {
 	c.JSON(200, successBody{Data: data, Meta: &meta})

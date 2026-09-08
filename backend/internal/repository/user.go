@@ -23,6 +23,34 @@ func NewUserRepository(db *gorm.DB) *UserRepository {
 	return &UserRepository{db: db}
 }
 
+// Create inserts a new user.
+//
+// The caller passes a model.User with ID, CreatedAt and UpdatedAt left zero:
+// all three have Postgres defaults (gen_random_uuid(), now(), now()), and GORM
+// reads them back into the struct via RETURNING. So the argument is mutated —
+// after a successful call, user.ID is the id the database assigned.
+//
+// A duplicate email comes back as domain.ErrConflict. Uniqueness is enforced by
+// the users_email_lower_key expression index on lower(email), not by a struct
+// tag, so this is the only place that can detect it — and it is detected by
+// letting the insert fail rather than by checking first. A check-then-insert
+// would still race: two concurrent signups for the same address both pass the
+// check, and one of them still hits the index.
+func (r *UserRepository) Create(ctx context.Context, user *model.User) error {
+	err := r.db.WithContext(ctx).Create(user).Error
+
+	if errors.Is(err, gorm.ErrDuplicatedKey) {
+		// Requires TranslateError on the gorm.Config in internal/database;
+		// without it this arrives as a *pgconn.PgError and never matches.
+		return domain.Conflictf("email already registered")
+	}
+	if err != nil {
+		return fmt.Errorf("creating user: %w", err)
+	}
+
+	return nil
+}
+
 // FindByEmail looks a user up case-insensitively.
 //
 // The predicate is written as lower(email) = lower(?) to match the expression

@@ -1,9 +1,17 @@
-# Local development infrastructure only.
+# The local development stack: Postgres, Redis, and the API that uses them.
+#
+# `docker compose up -d` brings all three up in dependency order. Running the API
+# on the host instead (`cd backend && go run ./cmd/api`) still works and is the
+# faster loop while writing code — it talks to the same two databases through the
+# published ports below.
 #
 # The credentials below are throwaway values for a database that listens on
 # localhost and holds no real data. They are duplicated in backend/.env.example
 # so a fresh checkout works with `cp .env.example .env`. Never point this file at
 # anything real, and never put a production secret in it.
+#
+# There is no frontend service yet: frontend/ has no Next.js app to build. Add
+# one here once it does.
 
 services:
   postgres:
@@ -45,6 +53,42 @@ services:
       timeout: 3s
       retries: 10
       start_period: 5s
+
+  # Everything above is infrastructure. This is the application.
+  backend:
+    build:
+      # The context is backend/, not the repo root, so the daemon never receives
+      # frontend/ or .git, and .dockerignore only has to describe one directory.
+      context: ./backend
+    container_name: ecommerce-backend
+    restart: unless-stopped
+    depends_on:
+      # service_healthy rather than the default service_started. Both containers
+      # accept TCP well before they accept queries, so "started" would let the
+      # API open a connection that is refused, fail its startup ping, and exit.
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      # The same file `go run ./cmd/api` reads, so configuration lives in one
+      # place. Compose fails with a clear error if it is missing — the fix is the
+      # `cp .env.example .env` a fresh checkout needs anyway.
+      - ./backend/.env
+    environment:
+      # These two override what .env says, and are the only difference between
+      # running in a container and running on the host. On the host the databases
+      # are at localhost; on the compose network they answer to their service
+      # names. internal/config/dotenv.go never clobbers a variable that is
+      # already set, so these win without .env being edited or duplicated.
+      POSTGRES_HOST: postgres
+      REDIS_HOST: redis
+    ports:
+      - "8080:8080"
+    # No healthcheck: block here on purpose. The API declares its own HEALTHCHECK
+    # in backend/Dockerfile, which compose inherits, so what "healthy" means for
+    # this service is defined once and travels with the image — a bare
+    # `docker run` or a `docker inspect` gets the same answer this file does.
 
 volumes:
   postgres_data:

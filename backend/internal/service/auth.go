@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
@@ -14,7 +15,7 @@ import (
 	"ecommerce/backend/internal/model"
 )
 
-// userFinder is the slice of the user repository this service actually uses.
+// userStore is the slice of the user repository this service actually uses.
 //
 // The interface is declared HERE, by the consumer, not by the repository that
 // implements it. That is inverted from Spring, where the repository interface
@@ -22,9 +23,10 @@ import (
 // the service depends on one method rather than a whole repository type, and a
 // test can satisfy it with a five-line struct — no mocking framework, no
 // generated doubles.
-type userFinder interface {
+type userStore interface {
 	FindByEmail(ctx context.Context, email string) (*model.User, error)
 	FindByID(ctx context.Context, id uuid.UUID) (*model.User, error)
+	Create(ctx context.Context, user *model.User) error
 }
 
 // tokenIssuer is the same idea for JWT minting: the service says what it needs,
@@ -34,12 +36,68 @@ type tokenIssuer interface {
 }
 
 type AuthService struct {
-	users  userFinder
+	users  userStore
 	tokens tokenIssuer
 }
 
-func NewAuthService(users userFinder, tokens tokenIssuer) *AuthService {
+func NewAuthService(users userStore, tokens tokenIssuer) *AuthService {
 	return &AuthService{users: users, tokens: tokens}
+}
+
+// Register creates a customer account and signs it in, returning the new user
+// and a token for it.
+//
+// Role is hardcoded to RoleCustomer and is not a parameter. There is no code
+// path by which a caller can choose their own role, which is why dto.
+// RegisterRequest has no Role field: the restriction is structural rather than
+// a check that a later refactor could drop.
+//
+// No transaction. This is a single INSERT, which Postgres already applies
+// atomically; wrapping one statement in a transaction would add a round trip
+// and protect nothing.
+func (s *AuthService) Register(ctx context.Context, email, name, password string) (*model.User, string, error) {
+	// DefaultCost, the same as the hashes Login verifies against. bcrypt stores
+	// the cost inside the hash, so raising it later still leaves old hashes
+	// verifiable — but every hash written here must be one Login can check.
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		// Reached when the password exceeds bcrypt's 72-byte input limit, which
+		// dto binding (max=72) should already have rejected with a 422. If it
+		// gets here the binding tag and this call have drifted apart, and a 500
+		// is the honest answer.
+		return nil, "", fmt.Errorf("hashing password: %w", err)
+	}
+
+	user := &model.User{
+		// Stored with the casing the user typed. Uniqueness and lookup are both
+		// case-insensitive already — users_email_lower_key and FindByEmail's
+		// lower(email) predicate — so folding case here would only throw away
+		// how they write their own address.
+		Email:        strings.TrimSpace(email),
+		Name:         strings.TrimSpace(name),
+		PasswordHash: string(hash),
+		Role:         model.RoleCustomer,
+	}
+
+	// ID, CreatedAt and UpdatedAt are filled in by the database and read back
+	// into user, so user.ID below is the real one.
+	if err := s.users.Create(ctx, user); err != nil {
+		// Passed through untouched. A duplicate email is already
+		// domain.ErrConflict from the repository, and handler.HandleError turns
+		// that into the 409; wrapping it in a new sentinel here would break the
+		// errors.Is chain that mapping depends on.
+		return nil, "", err
+	}
+
+	token, err := s.tokens.GenerateToken(user.ID, user.Role)
+	if err != nil {
+		// The account exists at this point. Failing here means the caller must
+		// log in separately, which is a worse experience but not a lost signup —
+		// so this is a 500 about token issuance, not a rollback.
+		return nil, "", fmt.Errorf("issuing token for new user %s: %w", user.ID, err)
+	}
+
+	return user, token, nil
 }
 
 // ErrInvalidCredentials is the ONLY error a failed login returns, whether the
